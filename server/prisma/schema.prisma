@@ -8,17 +8,17 @@ datasource db {
 }
 
 model User {
-  id         String   @id @default(uuid())
-  firebaseId String   @unique
-  email      String   @unique
-  name       String?
+    id       String  @id @default(uuid())
+  name     String
+  email    String  @unique
+  password String
   wishlist   Wishlist?
   cart       Cart?
   orders     Order[]
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-    chatbotLogs ChatbotLog[]  // ✅ Add this to establish the reverse relation
-     payments    Payment[]  // ✅ Add this to establish the reverse relation
+  chatbotLogs ChatbotLog[]  // ✅ Add this to establish the reverse relation
+   payments    Payment[]  // ✅ Add this to establish the reverse relation
   addresses  Address[]
 }
 
@@ -34,14 +34,17 @@ model Address {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
 model Category {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  code      String   @unique
-  products  Product[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(uuid())
+  name        String    @unique // Ensure category names are unique
+  slug        String?    @unique // For SEO-friendly URLs
+  imageUrl    String?   // Main category image
+  bannerUrl   String?   // Optional banner image for category pages
+  description String?   // Brief description of the category
+  isFeatured  Boolean   @default(false) // Flag for featured categories
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Product {
@@ -49,16 +52,23 @@ model Product {
   name        String
   description String?
   price       Decimal
+  discount    Int?     @default(0) // Added discount field
   categoryId  String
   category    Category @relation(fields: [categoryId], references: [id])
   imageUrl    String?
+  images      String[] // ✅ Store multiple images
   stock       Int      @default(0)
+  rating      Float?   @default(0.0) // ✅ Rating support
+  reviewCount Int?     @default(0) // ✅ Review count support
+  specifications Json? // ✅ Store specifications as JSON
+  variants    Json?    // ✅ Store variants as JSON
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   wishlists   WishlistProduct[]
-  cartItems   CartItem[]  // ✅ Add this to establish the reverse relation
-  orderItems  OrderItem[]  // ✅ Add this to establish the reverse relation
+  cartItems   CartItem[]
+  orderItems  OrderItem[]
 }
+
 
 model Wishlist {
   id       String   @id @default(uuid())

@@ -1,17 +1,16 @@
-
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, ShoppingCart } from 'lucide-react';
-import { Product } from '@/lib/data';
 import { useToast } from "@/hooks/use-toast";
 import { useWishlist } from '@/context/WishlistContext';
 
 interface ProductCardProps {
-  product: Product;
-  onAddToCart?: (product: Product) => void;
+  product: any; // Adjusted to match backend data structure
+  onAddToCart?: (product: any) => void;
+  children?: any;
 }
 
-export default function ProductCard({ product, onAddToCart }: ProductCardProps) {
+export default function ProductCard({ product, onAddToCart, children }: ProductCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const { toast } = useToast();
   const { toggleItem, isInWishlist } = useWishlist();
@@ -43,6 +42,7 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="relative overflow-hidden rounded-lg bg-background border border-border transition-all duration-300 hover:shadow-md">
+        {children}
         {/* Discount Tag */}
         {product.discount > 0 && (
           <div className="absolute top-2 left-2 z-10 bg-primary text-primary-foreground text-xs font-medium px-2 py-1 rounded-md">
@@ -62,10 +62,11 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
         {/* Product Image */}
         <div className="aspect-square overflow-hidden bg-secondary/30">
           <img
-            src={product.image}
+            src={product.imageUrl || '/placeholder.jpg'}
             alt={product.name}
             className="w-full h-full object-cover transition-transform duration-500 ease-out group-hover:scale-105"
             loading="lazy"
+            onError={(e) => (e.currentTarget.src = '/placeholder.jpg')}
           />
         </div>
         
@@ -82,7 +83,7 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
         
         {/* Product Info */}
         <div className="p-4">
-          <p className="text-sm text-muted-foreground">{product.category}</p>
+          <p className="text-sm text-muted-foreground">{product.category?.name || 'Uncategorized'}</p>
           <h3 className="mt-1 text-base font-medium text-foreground text-left">
             {product.name}
           </h3>
@@ -103,7 +104,7 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
               {[...Array(5)].map((_, i) => (
                 <svg
                   key={i}
-                  className={`w-3.5 h-3.5 ${i < product.rating ? 'text-yellow-400' : 'text-gray-300'}`}
+                  className={`w-3.5 h-3.5 ${i < Math.floor(product.rating || 0) ? 'text-yellow-400' : 'text-gray-300'}`}
                   aria-hidden="true"
                   xmlns="http://www.w3.org/2000/svg"
                   fill="currentColor"
@@ -113,7 +114,7 @@ export default function ProductCard({ product, onAddToCart }: ProductCardProps) 
                 </svg>
               ))}
             </div>
-            <p className="ml-1 text-xs text-muted-foreground">({product.reviewCount})</p>
+            <p className="ml-1 text-xs text-muted-foreground">({product.reviewCount || 0})</p>
           </div>
         </div>
       </div>
