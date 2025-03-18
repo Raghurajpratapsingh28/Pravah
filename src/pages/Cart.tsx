@@ -1,73 +1,151 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, Minus, ArrowRight } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
-import { useToast } from '@/hooks/use-toast';
+import toast from 'react-hot-toast';
 
 export default function CartPage() {
   const navigate = useNavigate();
-  const { toast } = useToast();
-  const {
-    items: cartItems,
-    totalItems,
-    subtotal,
-    isLoading,
-    error,
-    updateQuantity,
-    removeItem,
-    clearCart,
-  } = useCart();
+  const { items: cartItems, removeItem, updateQuantity } = useCart();
+  const [loading, setLoading] = useState(false);
 
-  React.useEffect(() => {
-    if (error && (error.includes('expired') || error.includes('not authenticated'))) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('user');
-      navigate('/login');
-      toast({
-        title: 'Session Expired',
-        description: 'Please log in to view your cart',
-        variant: 'destructive',
-      });
-    }
-  }, [error, navigate, toast]);
-
-  const handleRemoveItem = (productId: string) => {
-    removeItem(productId);
+  // Handlers
+  const handleRemoveItem = (id) => {
+    removeItem(id);
+    toast.success('Item removed from cart');
   };
 
-  const handleUpdateQuantity = (productId: string, newQuantity: number) => {
-    updateQuantity(productId, newQuantity);
-  };
-
-  const handleClearCart = async () => {
-    try {
-      await clearCart();
-    } catch (err) {
-      console.error('Clear cart error:', err);
+  const handleUpdateQuantity = (id, newQuantity) => {
+    if (newQuantity < 1) {
+      handleRemoveItem(id);
+    } else {
+      const item = cartItems.find(item => item.productId === id || item.id === id);
+      if (newQuantity > item.stock) {
+        toast.error(`Only ${item.stock} items in stock`);
+        return;
+      }
+      updateQuantity(id, newQuantity);
     }
   };
 
+  // Calculate totals
+  const calculateItemPrice = (item) => {
+    const price = item.discount > 0
+      ? Number(item.price) * (1 - item.discount / 100)
+      : Number(item.price);
+    return price * item.quantity;
+  };
+
+  const cartSubtotal = cartItems.reduce((sum, item) => sum + calculateItemPrice(item), 0);
   const taxRate = 0.1; // 10% tax
-  const tax = subtotal * taxRate;
-  const shipping = subtotal > 50 ? 0 : 5;
-  const total = subtotal + tax + shipping;
+  const tax = cartSubtotal * taxRate;
+  const shipping = cartSubtotal > 50 ? 0 : 5;
+  const total = cartSubtotal + tax + shipping;
+  const cartTotalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
 
-  if (isLoading) {
+  // Handle Razorpay Checkout
+  const handleCheckout = async () => {
+    if (cartItems.length === 0) {
+      toast.error('Your cart is empty');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      // Create order on backend without authentication
+      const orderResponse = await fetch(`http://localhost:3000/orders/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: 'guest', // Hardcoded guest user
+          items: cartItems.map(item => ({
+            productId: item.productId || item.id,
+            quantity: item.quantity,
+            price: item.discount > 0 ? item.price * (1 - item.discount / 100) : item.price,
+          })),
+          total: total,
+          shippingAddress: {
+            street: 'Default Street',
+            city: 'Default City',
+            state: 'Default State',
+            postalCode: '12345',
+            country: 'India',
+          },
+        }),
+      });
+
+      if (!orderResponse.ok) {
+        const errorData = await orderResponse.json();
+        throw new Error(errorData.error || 'Failed to create order');
+      }
+
+      const { orderId, amount } = await orderResponse.json();
+
+      // Load Razorpay script
+      const script = document.createElement('script');
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js';
+      script.onload = () => {
+        const options = {
+          key: 'YOUR_RAZORPAY_KEY_ID', // Replace with your Razorpay Key ID
+          amount: amount * 100, // Convert to paise
+          currency: 'INR',
+          name: 'Your Store Name',
+          description: 'Order Payment',
+          order_id: orderId,
+          handler: async (response) => {
+            // Verify payment on backend without authentication
+            const verifyResponse = await fetch(`http://localhost:3000/orders/verify`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                razorpay_order_id: response.razorpay_order_id,
+                razorpay_payment_id: response.razorpay_payment_id,
+                razorpay_signature: response.razorpay_signature,
+              }),
+            });
+
+            if (verifyResponse.ok) {
+              toast.success('Payment successful!');
+              // Clear local cart
+              cartItems.forEach(item => removeItem(item.productId || item.id));
+              navigate('/order-success', { state: { orderId: response.razorpay_order_id } });
+            } else {
+              toast.error('Payment verification failed');
+              navigate('/order-failure');
+            }
+          },
+          prefill: {
+            name: 'Guest',
+            email: 'guest@example.com',
+          },
+          theme: { color: '#3399cc' },
+        };
+
+        const rzp = new window.Razorpay(options);
+        rzp.open();
+      };
+      script.onerror = () => {
+        toast.error('Failed to load Razorpay SDK');
+        setLoading(false);
+      };
+      document.body.appendChild(script);
+    } catch (err) {
+      toast.error(err.message || 'Payment initiation failed');
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen">
-        <p className="text-red-500 mb-4">{error}</p>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
       </div>
     );
   }
@@ -85,7 +163,7 @@ export default function CartPage() {
               <div className="md:col-span-2 space-y-4">
                 {cartItems.map((item) => (
                   <div
-                    key={item.productId}
+                    key={item.productId || item.id}
                     className="flex items-center border border-border rounded-lg p-4 bg-background hover:shadow-md transition-shadow"
                   >
                     <div className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0 bg-secondary/30">
@@ -111,14 +189,14 @@ export default function CartPage() {
                           {item.discount > 0 ? (
                             <>
                               <p className="font-semibold">
-                                ${(item.price * (1 - item.discount / 100)).toFixed(2)}
+                                ${(calculateItemPrice(item) / item.quantity).toFixed(2)}
                               </p>
                               <p className="text-sm text-muted-foreground line-through">
-                                ${item.price.toFixed(2)}
+                                ${Number(item.price).toFixed(2)}
                               </p>
                             </>
                           ) : (
-                            <p className="font-semibold">${item.price.toFixed(2)}</p>
+                            <p className="font-semibold">${Number(item.price).toFixed(2)}</p>
                           )}
                         </div>
                       </div>
@@ -127,8 +205,8 @@ export default function CartPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
-                            disabled={isLoading || item.quantity <= 1}
+                            onClick={() => handleUpdateQuantity(item.productId || item.id, item.quantity - 1)}
+                            disabled={loading || item.quantity <= 1}
                             aria-label="Decrease quantity"
                           >
                             <Minus size={14} />
@@ -137,8 +215,8 @@ export default function CartPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
-                            disabled={isLoading || item.quantity >= item.stock}
+                            onClick={() => handleUpdateQuantity(item.productId || item.id, item.quantity + 1)}
+                            disabled={loading || item.quantity >= item.stock}
                             aria-label="Increase quantity"
                           >
                             <Plus size={14} />
@@ -147,8 +225,8 @@ export default function CartPage() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveItem(item.productId)}
-                          disabled={isLoading}
+                          onClick={() => handleRemoveItem(item.productId || item.id)}
+                          disabled={loading}
                           aria-label="Remove item"
                           className="text-muted-foreground hover:text-destructive"
                         >
@@ -158,14 +236,6 @@ export default function CartPage() {
                     </div>
                   </div>
                 ))}
-                <Button
-                  variant="outline"
-                  onClick={handleClearCart}
-                  disabled={isLoading}
-                  className="mt-4"
-                >
-                  Clear Cart
-                </Button>
               </div>
 
               {/* Order Summary */}
@@ -174,8 +244,8 @@ export default function CartPage() {
                   <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Subtotal ({totalItems} items)</span>
-                      <span>${subtotal.toFixed(2)}</span>
+                      <span className="text-muted-foreground">Subtotal ({cartTotalItems} items)</span>
+                      <span>${cartSubtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Shipping</span>
@@ -193,17 +263,15 @@ export default function CartPage() {
                     </div>
                   </div>
                   <Button
-                    className="w-full mt-4 mb-2"
+                    onClick={handleCheckout}
                     size="lg"
-                    asChild
-                    disabled={isLoading || cartItems.length === 0}
+                    className="w-full mt-4 mb-2"
+                    disabled={loading || cartItems.length === 0}
                   >
-                    <Link to="/checkout">
-                      Checkout <ArrowRight size={16} className="ml-2" />
-                    </Link>
+                    Checkout <ArrowRight size={16} className="ml-2" />
                   </Button>
                   <p className="text-xs text-center text-muted-foreground mt-4">
-                    Free shipping on orders over $50. Final totals calculated at checkout.
+                    Free shipping on orders over $50.
                   </p>
                 </div>
               </div>
@@ -211,9 +279,7 @@ export default function CartPage() {
           ) : (
             <div className="text-center py-12 border border-border rounded-lg bg-background">
               <h2 className="text-xl font-semibold mb-2">Your cart is empty</h2>
-              <p className="text-muted-foreground mb-6">
-                Looks like you haven’t added any products yet.
-              </p>
+              <p className="text-muted-foreground mb-6">Looks like you haven't added any products yet.</p>
               <Link to="/products">
                 <Button>Start Shopping</Button>
               </Link>

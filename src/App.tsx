@@ -25,6 +25,7 @@ import LoginPage from "./pages/LoginPage";
 import AdminSignup from "./pages/admin/Signup";
 import ProductDetail from "./pages/ProductDetail";
 
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -40,6 +41,7 @@ const App = () => (
                 <Route path="/" element={<Index />} />
                 <Route path="/products" element={<Products />} />
                 <Route path="/products/:id" element={<ProductDetail />} />
+                
                 <Route path="/categories" element={<Categories />} />
                 <Route path="/categories/:slug" element={<CategoryDetailPage />} />
                 <Route path="/wishlist" element={<Wishlist />} />

@@ -5,7 +5,7 @@ import {
   addCart, addWishlist, clearCart, createCategory, deleteCart, deleteProduct, 
   deleteWishlist, getCart, getCategories, getCategoryBySlug, getDeals, 
   getFeaturedProducts, getOrder, getProducts, getProfile, getWishlist, 
-  login, signup, updateCart, addProduct, editProduct, getAdminProducts, getProductById
+  login, signup, updateCart, addProduct, editProduct, getAdminProducts, getProductById, getUserAddresses, createOrder, verifyPayment
 } from "./api.js";
 import { authenticateUser } from "./middleware.js";
 
@@ -28,6 +28,8 @@ app.get('/', async (req, res) => {
 app.post("/signup", signup);
 app.post("/login", login);
 app.get("/profile", authenticateUser, getProfile);
+
+app.get('/user/addresses', authenticateUser, getUserAddresses);
 
 // Categories
 app.get('/categories', getCategories);
@@ -61,6 +63,11 @@ app.get("/order/:userId", authenticateUser, getOrder);
 
 // Deals
 app.get('/deals', getDeals);
+
+//payment
+app.post('/orders/create', createOrder);
+app.post('/orders/verify', verifyPayment);
+
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

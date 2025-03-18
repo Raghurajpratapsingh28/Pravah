@@ -2,11 +2,18 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
+import Razorpay from "razorpay";
+import crypto from "crypto";
+
 
 dotenv.config();
 
 const JWT_SECRET = process.env.JWT_SECRET;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient(); 
+const razorpay = new Razorpay({
+  key_id: 'rzp_test_TogtJ7wy2DO1D7', // Replace with your Razorpay Key ID
+  key_secret: 'sG4C5Ryxc6ukeiBXBbwHUNLg', // Replace with your Razorpay Key Secret
+});
 
 export const signup = async (req, res) => {
   const { name, email, password, role } = req.body;
@@ -255,7 +262,6 @@ export const addProduct = async (req, res) => {
   }
 };
 
-// Admin-facing: Edit a product
 export const editProduct = async (req, res) => {
   const { id } = req.params;
   const {
@@ -318,7 +324,7 @@ export const editProduct = async (req, res) => {
   }
 };
 
-// Admin-facing: Delete a product
+
 export const deleteProduct = async (req, res) => {
   const { id } = req.body;
 
@@ -350,7 +356,9 @@ export const deleteProduct = async (req, res) => {
 
 export const addWishlist = async (req, res) => {
   try {
-    const { userId, productId } = req.body;
+    const {id} = req.user;
+    const userId = id;
+    const {  productId } = req.body;
     if (!userId || !productId) {
       return res
         .status(400)
@@ -589,18 +597,16 @@ export const createCategory = async (req, res) => {
     console.error("Create category error:", error);
     res.status(500).json({ error: "Error creating category" });
   }
-};
+};export const getCart = async (req, res) => {
+  const userId = req.user?.id;
 
-export const getCart = async (req, res) => {
-  const userId = req.user?.id; // From authenticateUser middleware
-
-  // Validate userId
+  // Check authentication
   if (!userId) {
-    return res.status(401).json({ error: "User not authenticated" });
+    return res.status(401).json({ error: 'User not authenticated' });
   }
 
   try {
-    // Fetch cart with items and product details
+    // Fetch cart or create if it doesn’t exist
     let cart = await prisma.cart.findUnique({
       where: { userId },
       include: {
@@ -622,7 +628,6 @@ export const getCart = async (req, res) => {
       },
     });
 
-    // If no cart exists, create one
     if (!cart) {
       cart = await prisma.cart.create({
         data: { userId },
@@ -646,73 +651,95 @@ export const getCart = async (req, res) => {
       });
     }
 
-    // Normalize data: Convert Prisma.Decimal and other types to plain numbers
+    // Normalize numeric fields and structure response
     const normalizedCart = {
-      ...cart,
+      id: cart.id,
+      userId: cart.userId,
       items: cart.items.map((item) => ({
-        ...item,
+        productId: item.product.id,
+        quantity: Number(item.quantity),
         product: {
-          ...item.product,
-          price: Number(item.product.price), // Convert Decimal to number
-          discount: Number(item.product.discount), // Ensure number
-          stock: Number(item.product.stock), // Ensure number
+          id: item.product.id,
+          name: item.product.name,
+          price: Number(item.product.price),
+          discount: Number(item.product.discount || 0),
+          imageUrl: item.product.imageUrl || null,
+          stock: Number(item.product.stock),
+          category: item.product.category ? { name: item.product.category.name } : null,
         },
-        quantity: Number(item.quantity), // Ensure quantity is a number
       })),
     };
 
     return res.status(200).json(normalizedCart);
   } catch (error) {
-    console.error("Get cart error:", error.message, error.stack);
+    console.error('Get cart error:', error.message, error.stack);
     return res.status(500).json({
-      error: "Failed to fetch cart",
-      details: error.message, // For debugging; remove in production
+      error: 'Failed to fetch cart',
+      details: error.message,
     });
+  } finally {
+    await prisma.$disconnect(); // Ensure Prisma disconnects
   }
 };
 
 export const updateCart = async (req, res) => {
-  const { userId } = req.params;
+  const userId = req.user.id;
   const { productId, quantity } = req.body;
+
+  if (!productId || quantity === undefined) {
+    return res.status(400).json({ error: "productId and quantity are required" });
+  }
+
   try {
-    const cart = await prisma.cart.upsert({
+    // First, ensure a cart exists
+    let cart = await prisma.cart.findUnique({ where: { userId } });
+    if (!cart) {
+      cart = await prisma.cart.create({ data: { userId } });
+    }
+
+    const cartItem = await prisma.cartItem.upsert({
+      where: {
+        cartId_productId: { cartId: cart.id, productId },
+      },
+      update: { quantity },
+      create: { cartId: cart.id, productId, quantity },
+      include: { product: true },
+    });
+
+    // Fetch updated cart
+    const updatedCart = await prisma.cart.findUnique({
       where: { userId },
-      update: {
-        items: {
-          upsert: {
-            where: { cartId_productId: { cartId: userId, productId } },
-            update: { quantity },
-            create: { productId, quantity },
-          },
-        },
-      },
-      create: {
-        userId,
-        items: { create: { productId, quantity } },
-      },
       include: { items: { include: { product: true } } },
     });
-    return res.status(200).json(cart);
+
+    return res.status(200).json(updatedCart);
   } catch (error) {
-    return res.status(500).json({ error: "Failed to update cart" });
+    console.error("Update cart error:", error.message, error.stack);
+    return res.status(500).json({ error: "Failed to update cart", details: error.message });
   }
 };
 
 export const deleteCart = async (req, res) => {
-  const { userId } = req.params;
+  const userId = req.user.id;
   const { productId } = req.body;
+
+  if (!productId) {
+    return res.status(400).json({ error: "productId is required" });
+  }
+
   try {
     await prisma.cartItem.deleteMany({
       where: { cart: { userId }, productId },
     });
     return res.status(200).json({ message: "Item removed" });
   } catch (error) {
-    return res.status(500).json({ error: "Failed to remove item" });
+    console.error("Delete cart error:", error.message, error.stack);
+    return res.status(500).json({ error: "Failed to remove item", details: error.message });
   }
 };
 
 export const clearCart = async (req, res) => {
-  const { userId } = req.params;
+  const userId = req.user.id;
   try {
     await prisma.cart.update({
       where: { userId },
@@ -720,9 +747,11 @@ export const clearCart = async (req, res) => {
     });
     return res.status(200).json({ message: "Cart cleared" });
   } catch (error) {
-    return res.status(500).json({ error: "Failed to clear cart" });
+    console.error("Clear cart error:", error.message, error.stack);
+    return res.status(500).json({ error: "Failed to clear cart", details: error.message });
   }
 };
+
 
 export const getDeals = async (req, res) => {
   try {
@@ -806,5 +835,98 @@ export const getFeaturedProducts = async (req, res) => {
   } catch (error) {
     console.error("Get featured products error:", error);
     res.status(500).json({ error: "Error fetching featured products" });
+  }
+};
+
+export const getUserAddresses = async (req, res) => {
+  const userId = req.user?.id; // Assuming middleware sets req.user from token
+
+  if (!userId) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const addresses = await prisma.address.findMany({
+      where: { userId },
+    });
+
+    const formattedAddresses = addresses.map(addr => ({
+      id: addr.id,
+      street: addr.street,
+      city: addr.city,
+      state: addr.state,
+      postalCode: addr.postalCode,
+      country: addr.country,
+    }));
+
+    return res.status(200).json(formattedAddresses);
+  } catch (error) {
+    console.error('Get addresses error:', error);
+    return res.status(500).json({ error: 'Failed to fetch addresses' });
+  }
+};
+
+
+
+export const createOrder = async (req, res) => {
+  const { userId, items, total, shippingAddress } = req.body;
+
+  try {
+    const razorpayOrder = await razorpay.orders.create({
+      amount: Math.round(total * 100), // Convert to paise
+      currency: 'INR',
+      receipt: `receipt_${userId}_${Date.now()}`,
+    });
+
+    const order = await prisma.order.create({
+      data: {
+        userId: userId || 'guest', // Allow guest orders
+        total,
+        status: 'PENDING',
+        razorpayOrderId: razorpayOrder.id,
+        shippingAddress: {
+          create: shippingAddress,
+        },
+        items: {
+          create: items.map(item => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            price: item.price,
+          })),
+        },
+      },
+    });
+
+    return res.status(200).json({ orderId: razorpayOrder.id, amount: total });
+  } catch (error) {
+    console.error('Create order error:', error);
+    return res.status(500).json({ error: 'Failed to create order' });
+  }
+};
+
+export const verifyPayment = async (req, res) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+  const generatedSignature = crypto
+    .createHmac('sha256', 'YOUR_RAZORPAY_KEY_SECRET')
+    .update(`${razorpay_order_id}|${razorpay_payment_id}`)
+    .digest('hex');
+
+  if (generatedSignature === razorpay_signature) {
+    try {
+      await prisma.order.update({
+        where: { razorpayOrderId: razorpay_order_id },
+        data: {
+          status: 'PAID',
+          razorpayPaymentId: razorpay_payment_id,
+        },
+      });
+      return res.status(200).json({ message: 'Payment verified' });
+    } catch (error) {
+      console.error('Verify payment error:', error);
+      return res.status(500).json({ error: 'Failed to update order' });
+    }
+  } else {
+    return res.status(400).json({ error: 'Invalid payment signature' });
   }
 };

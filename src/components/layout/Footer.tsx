@@ -12,10 +12,10 @@ export default function Footer() {
           {/* Brand & Description */}
           <div className="space-y-4">
             <div className="flex items-center space-x-2">
-              <span className="font-bold text-xl tracking-tight bg-black text-white px-2 py-1 rounded">LUXE</span>
+              <span className="font-bold text-xl tracking-tight bg-black text-white px-2 py-1 rounded">ArtisanNE</span>
             </div>
             <p className="text-sm text-muted-foreground max-w-xs">
-              LUXE offers a curated selection of premium products, focusing on quality craftsmanship and timeless design.
+              ArtisanNE offers a curated selection of premium products, focusing on quality craftsmanship and timeless design.
             </p>
             <div className="flex space-x-4 pt-2">
               <a href="#" className="text-gray-500 hover:text-primary transition-colors" aria-label="Instagram">
