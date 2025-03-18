@@ -1,37 +1,58 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, Minus, ArrowRight } from 'lucide-react';
-import { useCart } from '@/context/CartContext';
-import { useAuth } from '@/context/AuthContext';
 import toast from 'react-hot-toast';
 
 export default function CartPage() {
-  const { items: contextItems, removeItem, updateQuantity } = useCart();
-  const { user, token } = useAuth();
-  const [cartItems, setCartItems] = useState([]); // Use backend data primarily
+  const navigate = useNavigate();
+  const [cartItems, setCartItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Fetch cart from backend
   const fetchCart = useCallback(async () => {
-    if (!user?.id || !token) {
-      setCartItems(contextItems); // Fallback to CartContext if not authenticated
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+    if (!token || !user || !user.id) {
+      setError('Please log in to view your cart');
+      navigate('/login');
+      toast.error('Please log in');
       return;
     }
+
     setLoading(true);
     setError(null);
     try {
+      console.log('Fetching cart for user:', user.id, 'with token:', token.substring(0, 10) + '...');
       const response = await fetch(`http://localhost:3000/cart/${user.id}`, {
+        method: 'GET',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
       });
-      if (!response.ok) throw new Error('Failed to fetch cart');
-      const data = await response.json();
+
+      const responseText = await response.text(); // Get raw response for debugging
+      console.log('Cart response status:', response.status, 'body:', responseText);
+
+      if (!response.ok) {
+        let errorData;
+        try {
+          errorData = JSON.parse(responseText);
+        } catch {
+          errorData = { error: 'Unknown error' };
+        }
+        if (response.status === 401) throw new Error('Session expired or invalid token');
+        throw new Error(errorData.error || `Failed to fetch cart (Status: ${response.status})`);
+      }
+
+      const data = JSON.parse(responseText);
+      console.log('Cart data received:', data);
+
       const syncedItems = data.items.map(item => ({
         ...item.product,
         productId: item.productId,
@@ -40,19 +61,31 @@ export default function CartPage() {
       setCartItems(syncedItems);
     } catch (err) {
       setError(err.message);
-      toast.error('Failed to load cart');
+      toast.error(err.message);
+      console.error('Fetch cart error:', err);
+      if (err.message.includes('expired') || err.message.includes('invalid token')) {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        navigate('/login');
+      }
     } finally {
       setLoading(false);
     }
-  }, [user?.id, token, contextItems]);
+  }, [navigate]);
 
   // Sync cart changes with backend
   const syncCartWithBackend = useCallback(async (productId, action, quantity) => {
-    if (!user?.id || !token) return;
+    const token = localStorage.getItem('token');
+    const user = JSON.parse(localStorage.getItem('user') || 'null');
+
+    if (!token || !user || !user.id) return;
+
     setLoading(true);
     try {
+      console.log(`Syncing cart - Action: ${action}, Product ID: ${productId}, Quantity: ${quantity}`);
+      let response;
       if (action === 'remove') {
-        await fetch(`http://localhost:3000/cart/${user.id}`, {
+        response = await fetch(`http://localhost:3000/cart/${user.id}`, {
           method: 'DELETE',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -61,13 +94,13 @@ export default function CartPage() {
           body: JSON.stringify({ productId }),
         });
       } else if (action === 'update') {
-        // Check stock before updating
         const product = cartItems.find(item => item.productId === productId);
         if (quantity > product.stock) {
           toast.error(`Only ${product.stock} items in stock`);
+          setLoading(false);
           return;
         }
-        await fetch(`http://localhost:3000/cart/${user.id}`, {
+        response = await fetch(`http://localhost:3000/cart/${user.id}`, {
           method: 'POST',
           headers: {
             'Authorization': `Bearer ${token}`,
@@ -76,13 +109,24 @@ export default function CartPage() {
           body: JSON.stringify({ productId, quantity }),
         });
       }
+
+      const responseText = await response.text();
+      console.log(`${action} response status:`, response.status, 'body:', responseText);
+
+      if (!response.ok) {
+        const errorData = JSON.parse(responseText);
+        throw new Error(errorData.error || `Failed to ${action} item (Status: ${response.status})`);
+      }
+
       await fetchCart(); // Refresh cart after update
+      toast.success(action === 'remove' ? 'Item removed' : 'Quantity updated');
     } catch (err) {
-      toast.error(`Failed to ${action} item`);
+      toast.error(`Failed to ${action} item: ${err.message}`);
+      console.error(`Sync error (${action}):`, err);
     } finally {
       setLoading(false);
     }
-  }, [user?.id, token, cartItems, fetchCart]);
+  }, [cartItems, fetchCart]);
 
   useEffect(() => {
     fetchCart();
@@ -90,16 +134,13 @@ export default function CartPage() {
 
   // Handlers
   const handleRemoveItem = (id) => {
-    removeItem(id); // Update CartContext
     syncCartWithBackend(id, 'remove');
-    toast.success('Item removed from cart');
   };
 
   const handleUpdateQuantity = (id, newQuantity) => {
     if (newQuantity < 1) {
       handleRemoveItem(id);
     } else {
-      updateQuantity(id, newQuantity); // Update CartContext
       syncCartWithBackend(id, 'update', newQuantity);
     }
   };
@@ -137,7 +178,6 @@ export default function CartPage() {
   return (
     <div className="flex flex-col min-h-screen">
       <Navbar />
-      
       <main className="flex-grow pt-24 pb-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-2xl font-bold mb-8">Shopping Cart</h1>
@@ -148,7 +188,7 @@ export default function CartPage() {
               <div className="md:col-span-2 space-y-4">
                 {cartItems.map((item) => (
                   <div
-                    key={item.productId || item.id}
+                    key={item.productId}
                     className="flex items-center border border-border rounded-lg p-4 bg-background hover:shadow-md transition-shadow"
                   >
                     <div className="w-20 h-20 rounded-md overflow-hidden flex-shrink-0 bg-secondary/30">
@@ -159,7 +199,6 @@ export default function CartPage() {
                         onError={(e) => (e.currentTarget.src = '/placeholder.jpg')}
                       />
                     </div>
-                    
                     <div className="ml-4 flex-grow">
                       <div className="flex justify-between items-start">
                         <div>
@@ -186,13 +225,12 @@ export default function CartPage() {
                           )}
                         </div>
                       </div>
-                      
                       <div className="flex justify-between items-center mt-2">
                         <div className="flex items-center border border-input rounded-md">
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleUpdateQuantity(item.productId || item.id, item.quantity - 1)}
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
                             disabled={loading || item.quantity <= 1}
                             aria-label="Decrease quantity"
                           >
@@ -202,18 +240,17 @@ export default function CartPage() {
                           <Button
                             variant="ghost"
                             size="sm"
-                            onClick={() => handleUpdateQuantity(item.productId || item.id, item.quantity + 1)}
+                            onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
                             disabled={loading || item.quantity >= item.stock}
                             aria-label="Increase quantity"
                           >
                             <Plus size={14} />
                           </Button>
                         </div>
-                        
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleRemoveItem(item.productId || item.id)}
+                          onClick={() => handleRemoveItem(item.productId)}
                           disabled={loading}
                           aria-label="Remove item"
                           className="text-muted-foreground hover:text-destructive"
@@ -225,12 +262,10 @@ export default function CartPage() {
                   </div>
                 ))}
               </div>
-              
               {/* Order Summary */}
               <div className="md:col-span-1">
                 <div className="bg-background border border-border rounded-lg p-6 sticky top-24">
                   <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
-                  
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Subtotal ({cartTotalItems} items)</span>
@@ -245,7 +280,6 @@ export default function CartPage() {
                       <span>${tax.toFixed(2)}</span>
                     </div>
                   </div>
-                  
                   <div className="border-t border-border my-4 pt-4">
                     <div className="flex justify-between font-semibold">
                       <span>Total</span>
@@ -254,13 +288,11 @@ export default function CartPage() {
                       </span>
                     </div>
                   </div>
-                  
                   <Button className="w-full mt-4 mb-2" size="lg" asChild disabled={loading}>
                     <Link to="/checkout">
                       Checkout <ArrowRight size={16} className="ml-2" />
                     </Link>
                   </Button>
-                  
                   <p className="text-xs text-center text-muted-foreground mt-4">
                     Free shipping on orders over $50. Final totals calculated at checkout.
                   </p>
@@ -278,7 +310,6 @@ export default function CartPage() {
           )}
         </div>
       </main>
-      
       <Footer />
     </div>
   );

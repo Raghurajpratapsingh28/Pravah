@@ -20,6 +20,8 @@ import NotFound from "./pages/NotFound";
 import AdminLogin from "./pages/admin/Login";
 import AdminDashboard from "./pages/admin/Dashboard";
 import CategoryDetailPage from "./pages/CategoryDetailPage";
+import SignupPage from "./pages/SignupPage";
+import LoginPage from "./pages/LoginPage";
 
 const queryClient = new QueryClient();
 
@@ -41,6 +43,8 @@ const App = () => (
                 <Route path="/deals" element={<Deals />} />
                 <Route path="/about" element={<About />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/login" element={<LoginPage />} />
+                 <Route path="/signup" element={<SignupPage />} />
                 <Route path="/cart" element={<Cart />} />
                 
                 {/* Admin Routes */}

@@ -45,14 +45,14 @@ app.post("/signup", signup);
 app.post("/login", login);
 app.get("/profile", authenticateUser, getProfile);
 
-//Categories
+// Categories
 app.get('/categories', getCategories);
-app.post('/categories', authenticateUser, createCategory); // Protected route for admins
+app.post('/categories', authenticateUser, createCategory);
 app.get('/categories/:slug', getCategoryBySlug);
 app.get('/products/featured', getFeaturedProducts);
 
 // Products
-app.post('/products', authenticateUser, postProducts); // Added authentication
+app.post('/products', authenticateUser, postProducts);
 app.get('/products', getProducts);
 app.delete("/products", authenticateUser, deleteProduct);
 
@@ -65,12 +65,12 @@ app.delete("/wishlist/:userId", authenticateUser, deleteWishlist);
 app.get('/cart/:userId', authenticateUser, getCart);
 app.post('/cart/:userId', authenticateUser, updateCart);
 app.delete('/cart/:userId', authenticateUser, deleteCart);
-app.delete('/cart/:userId/clear', authenticateUser, clearCart); // Optional clear route
+app.delete('/cart/:userId/clear', authenticateUser, clearCart);
 
 // Order
 app.get("/order/:userId", authenticateUser, getOrder);
 
-//deals
+// Deals
 app.get('/deals', getDeals);
 
 const PORT = process.env.PORT || 3000;
