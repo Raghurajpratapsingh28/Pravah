@@ -22,6 +22,7 @@ import AdminDashboard from "./pages/admin/Dashboard";
 import CategoryDetailPage from "./pages/CategoryDetailPage";
 import SignupPage from "./pages/SignupPage";
 import LoginPage from "./pages/LoginPage";
+import AdminSignup from "./pages/admin/Signup";
 
 const queryClient = new QueryClient();
 
@@ -48,6 +49,7 @@ const App = () => (
                 <Route path="/cart" element={<Cart />} />
                 
                 {/* Admin Routes */}
+                <Route path="/admin/signup" element={<AdminSignup />} />
                 <Route path="/admin/login" element={<AdminLogin />} />
                 <Route path="/admin/dashboard" element={<AdminDashboard />} />
                 
