@@ -27,17 +27,9 @@ export default function AdminLogin() {
         body: JSON.stringify({ email, password }),
       });
 
-      console.log('Login response status:', response.status);
-      const responseText = await response.text();
-      console.log('Login raw response:', responseText);
-
-      let data;
-      try {
-        data = JSON.parse(responseText);
-      } catch (parseError) {
-        throw new Error('Invalid response format from server');
-      }
-      console.log('Login parsed data:', data);
+      console.log('Response status:', response.status);
+      const data = await response.json();
+      console.log('Response data:', data);
 
       if (!response.ok) {
         throw new Error(data.error || 'Login failed');
@@ -48,19 +40,16 @@ export default function AdminLogin() {
         throw new Error('Invalid response: Token or user data missing');
       }
 
-      console.log('User role from login:', user.role);
       if (user.role !== 'admin') {
         throw new Error('You are not authorized as an admin');
       }
 
       localStorage.setItem('token', token);
       localStorage.setItem('user', JSON.stringify(user));
-      console.log('Saved to localStorage:', {
-        token: localStorage.getItem('token')?.substring(0, 10) + '...',
-        user: JSON.parse(localStorage.getItem('user') || 'null'),
-      });
-
+      console.log('Stored in localStorage:', { token, user });
       toast.success('Logged in successfully');
+      
+      // Ensure navigation happens
       console.log('Navigating to /admin/dashboard');
       navigate('/admin/dashboard', { replace: true });
     } catch (error) {

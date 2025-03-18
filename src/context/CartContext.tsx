@@ -1,12 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Product } from '@/lib/data';
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from '@/context/AuthContext';
-import debounce from 'lodash/debounce'; // Add this for debouncing
+import { useAuth } from '@/context/AuthContext'; // Assuming this exists for auth
 
 interface CartItem extends Product {
   quantity: number;
-  productId: string; // Made required for backend consistency
+  productId?: string; // Added for backend compatibility
 }
 
 interface CartContextType {
@@ -17,22 +16,23 @@ interface CartContextType {
   clearCart: () => void;
   totalItems: number;
   subtotal: number;
-  isLoading: boolean;
-  error: string | null;
+  isLoading: boolean; // Added for loading state
+  error: string | null; // Added for error state
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [items, setItems] = useState<CartItem[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false); // Loading state
+  const [error, setError] = useState<string | null>(null); // Error state
   const { toast } = useToast();
-  const { user, token, isAuthenticated } = useAuth();
+  const { user, token } = useAuth(); // Get auth data
 
   // Fetch cart from backend
   const fetchCart = useCallback(async () => {
-    if (!isAuthenticated || !user?.id || !token) {
+    if (!user?.id || !token) {
+      // Fallback to localStorage if not authenticated
       const savedCart = localStorage.getItem('cart');
       if (savedCart) {
         try {
@@ -53,93 +53,63 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Content-Type': 'application/json',
         },
       });
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to fetch cart');
-      }
+      if (!response.ok) throw new Error('Failed to fetch cart');
       const data = await response.json();
-      const backendItems = (data.items || []).map(item => ({
+      const backendItems = data.items.map(item => ({
         ...item.product,
         quantity: item.quantity,
-        productId: item.productId,
+        productId: item.productId, // Map backend structure to CartItem
       }));
       setItems(backendItems);
-      localStorage.setItem('cart', JSON.stringify(backendItems)); // Sync localStorage as backup
+      localStorage.setItem('cart', JSON.stringify(backendItems)); // Sync localStorage
     } catch (err) {
       setError(err.message);
-      toast({ title: 'Error', description: 'Failed to load cart', variant: 'destructive' });
+      toast({ title: "Error", description: "Failed to load cart", variant: "destructive" });
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, user?.id, token, toast]);
+  }, [user?.id, token, toast]);
 
-  // Debounced sync with backend
-  const syncCartWithBackend = useCallback(
-    debounce(async (productId: string, action: 'add' | 'update' | 'remove', quantity?: number) => {
-      if (!isAuthenticated || !user?.id || !token) return;
-
-      try {
-        if (action === 'add' || action === 'update') {
-          // Validate stock before syncing
-          const product = items.find(item => item.productId === productId);
-          if (product && quantity && quantity > product.stock) {
-            toast({
-              title: 'Stock Limit',
-              description: `Only ${product.stock} items available`,
-              variant: 'destructive',
-            });
-            return;
-          }
-          const response = await fetch(`http://localhost:3000/cart/${user.id}`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ productId, quantity }),
-          });
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `Failed to ${action} item`);
-          }
-        } else if (action === 'remove') {
-          const response = await fetch(`http://localhost:3000/cart/${user.id}`, {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${token}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ productId }),
-          });
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Failed to remove item');
-          }
-        }
-        await fetchCart(); // Refresh cart after sync
-      } catch (err) {
-        toast({
-          title: 'Error',
-          description: `Failed to ${action} item: ${err.message}`,
-          variant: 'destructive',
+  // Sync cart changes with backend
+  const syncCartWithBackend = useCallback(async (productId: string, action: 'add' | 'update' | 'remove', quantity?: number) => {
+    if (!user?.id || !token) return; // Skip if not authenticated
+    try {
+      if (action === 'add' || action === 'update') {
+        await fetch(`http://localhost:3000/cart/${user.id}`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ productId, quantity }),
         });
-        fetchCart(); // Re-fetch to ensure consistency on error
+      } else if (action === 'remove') {
+        await fetch(`http://localhost:3000/cart/${user.id}`, {
+          method: 'DELETE',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ productId }),
+        });
       }
-    }, 500), // 500ms debounce
-    [isAuthenticated, user?.id, token, items, fetchCart, toast]
-  );
+      await fetchCart(); // Refresh cart after sync
+    } catch (err) {
+      toast({ title: "Error", description: "Failed to update cart", variant: "destructive" });
+    }
+  }, [user?.id, token, fetchCart, toast]);
 
-  // Load cart on mount or when auth changes
+  // Load cart on mount
   useEffect(() => {
     fetchCart();
   }, [fetchCart]);
 
-  // Sync localStorage for unauthenticated users
+  // Sync localStorage when items change (for unauthenticated users)
   useEffect(() => {
-    if (!isAuthenticated) {
+    if (!user?.id) {
       localStorage.setItem('cart', JSON.stringify(items));
     }
-  }, [items, isAuthenticated]);
+  }, [items, user?.id]);
 
   const addItem = (product: Product, quantity = 1) => {
     setItems(prevItems => {
@@ -147,45 +117,30 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       let updatedItems;
 
       if (existingItem) {
-        const newQuantity = existingItem.quantity + quantity;
-        if (newQuantity > product.stock) {
-          toast({
-            title: 'Stock Limit',
-            description: `Only ${product.stock} items available`,
-            variant: 'destructive',
-          });
-          return prevItems; // No update if over stock
-        }
         updatedItems = prevItems.map(item =>
-          item.id === product.id ? { ...item, quantity: newQuantity } : item
+          item.id === product.id
+            ? { ...item, quantity: item.quantity + quantity }
+            : item
         );
       } else {
-        if (quantity > product.stock) {
-          toast({
-            title: 'Stock Limit',
-            description: `Only ${product.stock} items available`,
-            variant: 'destructive',
-          });
-          return prevItems;
-        }
         updatedItems = [...prevItems, { ...product, quantity, productId: product.id }];
       }
 
-      if (isAuthenticated && token) {
+      if (user?.id && token) {
         syncCartWithBackend(product.id, 'add', quantity);
       }
-      toast({ title: 'Added to Cart', description: `${product.name} added to your cart` });
+      toast({ title: "Added to Cart", description: `${product.name} added to your cart` });
       return updatedItems;
     });
   };
 
   const removeItem = (productId: string) => {
     setItems(prevItems => {
-      const updatedItems = prevItems.filter(item => item.productId !== productId);
-      if (isAuthenticated && token) {
+      const updatedItems = prevItems.filter(item => item.id !== productId);
+      if (user?.id && token) {
         syncCartWithBackend(productId, 'remove');
       }
-      toast({ title: 'Item Removed', description: 'Item removed from your cart' });
+      toast({ title: "Item Removed", description: "The item has been removed from your cart" });
       return updatedItems;
     });
   };
@@ -197,53 +152,23 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     setItems(prevItems => {
-      const item = prevItems.find(i => i.productId === productId);
-      if (!item) return prevItems;
-      if (quantity > item.stock) {
-        toast({
-          title: 'Stock Limit',
-          description: `Only ${item.stock} items available`,
-          variant: 'destructive',
-        });
-        return prevItems;
-      }
-
-      const updatedItems = prevItems.map(i =>
-        i.productId === productId ? { ...i, quantity } : i
+      const updatedItems = prevItems.map(item =>
+        item.id === productId ? { ...item, quantity } : item
       );
-      if (isAuthenticated && token) {
+      if (user?.id && token) {
         syncCartWithBackend(productId, 'update', quantity);
       }
       return updatedItems;
     });
   };
 
-  const clearCart = async () => {
-    if (isAuthenticated && user?.id && token) {
-      setIsLoading(true);
-      try {
-        const response = await fetch(`http://localhost:3000/cart/${user.id}/clear`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        if (!response.ok) throw new Error('Failed to clear cart');
-        setItems([]);
-        toast({ title: 'Cart Cleared', description: 'All items removed from your cart' });
-      } catch (err) {
-        setError(err.message);
-        toast({ title: 'Error', description: 'Failed to clear cart', variant: 'destructive' });
-        fetchCart(); // Re-fetch to ensure consistency
-      } finally {
-        setIsLoading(false);
-      }
-    } else {
-      setItems([]);
-      localStorage.setItem('cart', JSON.stringify([]));
-      toast({ title: 'Cart Cleared', description: 'All items removed from your cart' });
+  const clearCart = () => {
+    setItems([]);
+    if (user?.id && token) {
+      // Could add a DELETE /cart/:userId endpoint to clear all items
+      items.forEach(item => syncCartWithBackend(item.id, 'remove'));
     }
+    toast({ title: "Cart Cleared", description: "All items have been removed from your cart" });
   };
 
   const totalItems = items.reduce((total, item) => total + item.quantity, 0);
@@ -252,7 +177,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const price = item.discount > 0
       ? Number(item.price) * (1 - item.discount / 100)
       : Number(item.price);
-    return total + price * item.quantity;
+    return total + (price * item.quantity);
   }, 0);
 
   return (

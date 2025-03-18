@@ -8,37 +8,13 @@ dotenv.config();
 const JWT_SECRET = process.env.JWT_SECRET;
 const prisma = new PrismaClient();
 
-// export const signup = async (req, res) => {
-//   try {
-//     const { name, email, password } = req.body;
-//     if (!name || !email || !password) {
-//       return res.status(400).json({ error: "All fields are required" });
-//     }
-
-//     const existingUser = await prisma.user.findUnique({ where: { email } });
-//     if (existingUser) {
-//       return res.status(400).json({ error: "Email already exists" });
-//     }
-
-//     const hashedPassword = await bcrypt.hash(password, 10);
-//     const user = await prisma.user.create({
-//       data: { name, email, password: hashedPassword },
-//     });
-
-//     res
-//       .status(201)
-//       .json({ message: "User created successfully!", userId: user.id });
-//   } catch (error) {
-//     console.error("Signup error:", error);
-//     res.status(500).json({ error: "Internal server error" });
-//   }
-// };
-
 export const signup = async (req, res) => {
   const { name, email, password, role } = req.body;
 
   if (!name || !email || !password) {
-    return res.status(400).json({ error: "Name, email, and password are required" });
+    return res
+      .status(400)
+      .json({ error: "Name, email, and password are required" });
   }
 
   try {
@@ -53,7 +29,7 @@ export const signup = async (req, res) => {
         name,
         email,
         password: hashedPassword,
-        role: role === 'admin' ? 'admin' : 'user', // Allow admin role, default to user
+        role: role === "admin" ? "admin" : "user",
       },
     });
 
@@ -67,55 +43,26 @@ export const signup = async (req, res) => {
   }
 };
 
-// export const login = async (req, res) => {
-//   const { email, password } = req.body;
-
-//   if (!email || !password) {
-//     return res.status(400).json({ error: "Email and password are required" });
-//   }
-
-//   try {
-//     const user = await prisma.user.findUnique({
-//       where: { email },
-//     });
-
-//     if (!user || !bcrypt.compareSync(password, user.password)) {
-//       return res.status(401).json({ error: "Invalid credentials" });
-//     }
-
-//     const token = jwt.sign(
-//       { id: user.id, role: user.role }, // Include role in token
-//       JWT_SECRET,
-//       { expiresIn: "7d" }
-//     );
-
-//     res.json({
-//       token,
-//       user: {
-//         id: user.id,
-//         name: user.name,
-//         email: user.email,
-//         role: user.role, // Include role in response
-//       },
-//     });
-//   } catch (error) {
-//     console.error("Login error:", error);
-//     res.status(500).json({ error: "Error during login" });
-//   }
-// };
-
 export const login = async (req, res) => {
   const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: "Email and password are required" });
+  if (!email || !password)
+    return res.status(400).json({ error: "Email and password are required" });
   try {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
-    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, { expiresIn: "7d" });
+    const token = jwt.sign({ id: user.id, role: user.role }, JWT_SECRET, {
+      expiresIn: "7d",
+    });
     res.json({
       token,
-      user: { id: user.id, name: user.name, email: user.email, role: user.role },
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
     });
   } catch (error) {
     console.error("Login error:", error);
@@ -127,9 +74,14 @@ export const getProfile = async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
       where: { id: req.user.id },
-      select: { id: true, name: true, email: true, role: true, createdAt: true },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        createdAt: true,
+      },
     });
-    if (!user) return res.status(404).json({ error: "User not found" });
     res.json(user);
   } catch (error) {
     console.error("Get profile error:", error);
@@ -137,11 +89,11 @@ export const getProfile = async (req, res) => {
   }
 };
 
+// User-facing: Get all products
 export const getProducts = async (req, res) => {
   try {
     const { category, priceRange, sort } = req.query;
 
-    // Build where clause
     let where = {};
     if (category && category !== "all") {
       where.category = { name: category };
@@ -154,7 +106,6 @@ export const getProducts = async (req, res) => {
       else if (priceRange === "200+") where.price.gte = 200;
     }
 
-    // Build orderBy clause
     let orderBy = {};
     switch (sort) {
       case "priceLow":
@@ -196,30 +147,90 @@ export const getProducts = async (req, res) => {
   }
 };
 
-export const postProducts = async (req, res) => {
-  try {
-    const {
-      name,
-      price,
-      categoryId,
-      description,
-      imageUrl,
-      images,
-      stock,
-      discount,
-      rating,
-      reviewCount,
-      specifications,
-      variants,
-    } = req.body;
+export const getProductById = async (req, res) => {
+  const { id } = req.params;
 
-    if (!name || !price || !categoryId) {
-      return res
-        .status(400)
-        .json({ error: "Name, price, and categoryId are required" });
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id },
+      include: {
+        category: {
+          select: { name: true },
+        },
+      },
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
     }
 
-    const newProduct = await prisma.product.create({
+    // Format the product to match getProducts output
+    const formattedProduct = {
+      id: product.id,
+      name: product.name,
+      price: Number(product.price),
+      discount: product.discount || 0,
+      imageUrl: product.imageUrl || null,
+      rating: product.rating || 0,
+      reviewCount: product.reviewCount || 0,
+      category: product.category,
+    };
+
+    return res.status(200).json(formattedProduct);
+  } catch (error) {
+    console.error("Get product by ID error:", error);
+    return res.status(500).json({ error: "Error fetching product" });
+  }
+};
+
+export const getAdminProducts = async (req, res) => {
+  try {
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
+    }
+    const products = await prisma.product.findMany({
+      where: { createdById: req.user.id },
+      include: { category: { select: { name: true } } },
+    });
+    res.json(products);
+  } catch (error) {
+    console.error("Get admin products error:", error);
+    res.status(500).json({ error: "Error fetching admin products" });
+  }
+};
+
+export const addProduct = async (req, res) => {
+  const {
+    name,
+    price,
+    categoryId,
+    description,
+    imageUrl,
+    images,
+    stock,
+    discount,
+    rating,
+    reviewCount,
+    specifications,
+    variants,
+  } = req.body;
+
+  if (!name || !price || !categoryId) {
+    return res
+      .status(400)
+      .json({ error: "Name, price, and categoryId are required" });
+  }
+
+  try {
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
+    }
+
+    const product = await prisma.product.create({
       data: {
         name,
         price: parseFloat(price),
@@ -233,28 +244,104 @@ export const postProducts = async (req, res) => {
         reviewCount: reviewCount || 0,
         specifications: specifications || {},
         variants: variants || {},
+        createdById: req.user.id, // Link to the admin
       },
+      include: { category: { select: { name: true } } },
     });
-
-    res.status(201).json(newProduct);
+    res.status(201).json(product);
   } catch (error) {
-    console.error("Error creating product:", error);
-    res.status(500).json({ error: "Error creating product" });
+    console.error("Add product error:", error);
+    res.status(500).json({ error: "Error adding product" });
   }
 };
 
-export const deleteProduct = async (req, res) => {
+// Admin-facing: Edit a product
+export const editProduct = async (req, res) => {
+  const { id } = req.params;
+  const {
+    name,
+    price,
+    categoryId,
+    description,
+    imageUrl,
+    images,
+    stock,
+    discount,
+    rating,
+    reviewCount,
+    specifications,
+    variants,
+  } = req.body;
+
+  if (!name || !price || !categoryId) {
+    return res
+      .status(400)
+      .json({ error: "Name, price, and categoryId are required" });
+  }
+
   try {
-    const { id } = req.body;
-    if (!id) {
-      return res.status(400).json({ error: "Product ID is required" });
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
     }
 
-    const product = await prisma.product.delete({
-      where: { id },
-    });
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product || product.createdById !== req.user.id) {
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: You can only edit your own products" });
+    }
 
-    res.json({ message: "Product deleted successfully", product });
+    const updatedProduct = await prisma.product.update({
+      where: { id },
+      data: {
+        name,
+        price: parseFloat(price),
+        categoryId,
+        description,
+        imageUrl,
+        images: images || product.images,
+        stock: stock || product.stock,
+        discount: discount || product.discount,
+        rating: rating || product.rating,
+        reviewCount: reviewCount || product.reviewCount,
+        specifications: specifications || product.specifications,
+        variants: variants || product.variants,
+      },
+      include: { category: { select: { name: true } } },
+    });
+    res.json(updatedProduct);
+  } catch (error) {
+    console.error("Edit product error:", error);
+    res.status(500).json({ error: "Error editing product" });
+  }
+};
+
+// Admin-facing: Delete a product
+export const deleteProduct = async (req, res) => {
+  const { id } = req.body;
+
+  if (!id) {
+    return res.status(400).json({ error: "Product ID is required" });
+  }
+
+  try {
+    if (req.user.role !== "admin") {
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: Admin access required" });
+    }
+
+    const product = await prisma.product.findUnique({ where: { id } });
+    if (!product || product.createdById !== req.user.id) {
+      return res
+        .status(403)
+        .json({ error: "Unauthorized: You can only delete your own products" });
+    }
+
+    await prisma.product.delete({ where: { id } });
+    res.json({ message: "Product deleted successfully" });
   } catch (error) {
     console.error("Delete product error:", error);
     res.status(500).json({ error: "Error deleting product" });
@@ -505,9 +592,16 @@ export const createCategory = async (req, res) => {
 };
 
 export const getCart = async (req, res) => {
-  const { userId } = req.user; // From authenticateUser middleware
+  const userId = req.user?.id; // From authenticateUser middleware
+
+  // Validate userId
+  if (!userId) {
+    return res.status(401).json({ error: "User not authenticated" });
+  }
+
   try {
-    const cart = await prisma.cart.findUnique({
+    // Fetch cart with items and product details
+    let cart = await prisma.cart.findUnique({
       where: { userId },
       include: {
         items: {
@@ -520,7 +614,7 @@ export const getCart = async (req, res) => {
                 discount: true,
                 imageUrl: true,
                 stock: true,
-                category: { select: { name: true } }, // Include category name
+                category: { select: { name: true } },
               },
             },
           },
@@ -528,181 +622,105 @@ export const getCart = async (req, res) => {
       },
     });
 
+    // If no cart exists, create one
     if (!cart) {
-      // Create an empty cart if none exists
-      const newCart = await prisma.cart.create({
+      cart = await prisma.cart.create({
         data: { userId },
-        include: { items: { include: { product: true } } },
+        include: {
+          items: {
+            include: {
+              product: {
+                select: {
+                  id: true,
+                  name: true,
+                  price: true,
+                  discount: true,
+                  imageUrl: true,
+                  stock: true,
+                  category: { select: { name: true } },
+                },
+              },
+            },
+          },
+        },
       });
-      return res.json(newCart);
     }
 
-    res.json(cart);
+    // Normalize data: Convert Prisma.Decimal and other types to plain numbers
+    const normalizedCart = {
+      ...cart,
+      items: cart.items.map((item) => ({
+        ...item,
+        product: {
+          ...item.product,
+          price: Number(item.product.price), // Convert Decimal to number
+          discount: Number(item.product.discount), // Ensure number
+          stock: Number(item.product.stock), // Ensure number
+        },
+        quantity: Number(item.quantity), // Ensure quantity is a number
+      })),
+    };
+
+    return res.status(200).json(normalizedCart);
   } catch (error) {
-    console.error("Get cart error:", error);
-    res.status(500).json({ error: "Error fetching cart" });
+    console.error("Get cart error:", error.message, error.stack);
+    return res.status(500).json({
+      error: "Failed to fetch cart",
+      details: error.message, // For debugging; remove in production
+    });
   }
 };
 
 export const updateCart = async (req, res) => {
-  const { userId } = req.user;
+  const { userId } = req.params;
   const { productId, quantity } = req.body;
-
-  if (!productId || !Number.isInteger(quantity) || quantity < 1) {
-    return res.status(400).json({ error: "Invalid productId or quantity" });
-  }
-
   try {
-    // Validate product and stock
-    const product = await prisma.product.findUnique({
-      where: { id: productId },
-      select: { id: true, stock: true },
-    });
-    if (!product) {
-      return res.status(404).json({ error: "Product not found" });
-    }
-    if (quantity > product.stock) {
-      return res
-        .status(400)
-        .json({ error: `Only ${product.stock} items in stock` });
-    }
-
-    // Ensure cart exists
-    let cart = await prisma.cart.findUnique({ where: { userId } });
-    if (!cart) {
-      cart = await prisma.cart.create({ data: { userId } });
-    }
-
-    // Update or create cart item
-    const existingItem = await prisma.cartItem.findFirst({
-      where: { cartId: cart.id, productId },
-    });
-
-    if (existingItem) {
-      await prisma.cartItem.update({
-        where: { id: existingItem.id },
-        data: { quantity },
-      });
-    } else {
-      await prisma.cartItem.create({
-        data: {
-          cartId: cart.id,
-          productId,
-          quantity,
-        },
-      });
-    }
-
-    // Fetch updated cart
-    const updatedCart = await prisma.cart.findUnique({
+    const cart = await prisma.cart.upsert({
       where: { userId },
-      include: {
+      update: {
         items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                price: true,
-                discount: true,
-                imageUrl: true,
-                stock: true,
-                category: { select: { name: true } },
-              },
-            },
+          upsert: {
+            where: { cartId_productId: { cartId: userId, productId } },
+            update: { quantity },
+            create: { productId, quantity },
           },
         },
       },
+      create: {
+        userId,
+        items: { create: { productId, quantity } },
+      },
+      include: { items: { include: { product: true } } },
     });
-
-    res.json(updatedCart);
+    return res.status(200).json(cart);
   } catch (error) {
-    console.error("Update cart error:", error);
-    res.status(500).json({ error: "Error updating cart" });
+    return res.status(500).json({ error: "Failed to update cart" });
   }
 };
 
 export const deleteCart = async (req, res) => {
-  const { userId } = req.user;
+  const { userId } = req.params;
   const { productId } = req.body;
-
-  if (!productId) {
-    return res.status(400).json({ error: "ProductId is required" });
-  }
-
   try {
-    const cart = await prisma.cart.findUnique({
-      where: { userId },
-      include: { items: true },
+    await prisma.cartItem.deleteMany({
+      where: { cart: { userId }, productId },
     });
-
-    if (!cart) {
-      return res.status(404).json({ error: "Cart not found" });
-    }
-
-    const item = await prisma.cartItem.findFirst({
-      where: { cartId: cart.id, productId },
-    });
-
-    if (!item) {
-      return res.status(404).json({ error: "Item not found in cart" });
-    }
-
-    await prisma.cartItem.delete({
-      where: { id: item.id },
-    });
-
-    // Fetch updated cart
-    const updatedCart = await prisma.cart.findUnique({
-      where: { userId },
-      include: {
-        items: {
-          include: {
-            product: {
-              select: {
-                id: true,
-                name: true,
-                price: true,
-                discount: true,
-                imageUrl: true,
-                stock: true,
-                category: { select: { name: true } },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    res.json(updatedCart);
+    return res.status(200).json({ message: "Item removed" });
   } catch (error) {
-    console.error("Delete cart item error:", error);
-    res.status(500).json({ error: "Error removing item from cart" });
+    return res.status(500).json({ error: "Failed to remove item" });
   }
 };
 
 export const clearCart = async (req, res) => {
-  const { userId } = req.user;
-
+  const { userId } = req.params;
   try {
-    const cart = await prisma.cart.findUnique({ where: { userId } });
-    if (!cart) {
-      return res.status(404).json({ error: "Cart not found" });
-    }
-
-    await prisma.cartItem.deleteMany({
-      where: { cartId: cart.id },
-    });
-
-    const clearedCart = await prisma.cart.findUnique({
+    await prisma.cart.update({
       where: { userId },
-      include: { items: { include: { product: true } } },
+      data: { items: { deleteMany: {} } },
     });
-
-    res.json(clearedCart);
+    return res.status(200).json({ message: "Cart cleared" });
   } catch (error) {
-    console.error("Clear cart error:", error);
-    res.status(500).json({ error: "Error clearing cart" });
+    return res.status(500).json({ error: "Failed to clear cart" });
   }
 };
 
@@ -790,5 +808,3 @@ export const getFeaturedProducts = async (req, res) => {
     res.status(500).json({ error: "Error fetching featured products" });
   }
 };
-
-

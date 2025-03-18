@@ -1,164 +1,61 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import Navbar from '@/components/layout/Navbar';
 import Footer from '@/components/layout/Footer';
 import { Button } from '@/components/ui/button';
 import { Trash2, Plus, Minus, ArrowRight } from 'lucide-react';
-import toast from 'react-hot-toast';
+import { useCart } from '@/context/CartContext';
+import { useToast } from '@/hooks/use-toast';
 
 export default function CartPage() {
   const navigate = useNavigate();
-  const [cartItems, setCartItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
+  const { toast } = useToast();
+  const {
+    items: cartItems,
+    totalItems,
+    subtotal,
+    isLoading,
+    error,
+    updateQuantity,
+    removeItem,
+    clearCart,
+  } = useCart();
 
-  // Fetch cart from backend
-  const fetchCart = useCallback(async () => {
-    const token = localStorage.getItem('token');
-    const user = JSON.parse(localStorage.getItem('user') || 'null');
-
-    if (!token || !user || !user.id) {
-      setError('Please log in to view your cart');
+  React.useEffect(() => {
+    if (error && (error.includes('expired') || error.includes('not authenticated'))) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
       navigate('/login');
-      toast.error('Please log in');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    try {
-      console.log('Fetching cart for user:', user.id, 'with token:', token.substring(0, 10) + '...');
-      const response = await fetch(`http://localhost:3000/cart/${user.id}`, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
+      toast({
+        title: 'Session Expired',
+        description: 'Please log in to view your cart',
+        variant: 'destructive',
       });
-
-      const responseText = await response.text(); // Get raw response for debugging
-      console.log('Cart response status:', response.status, 'body:', responseText);
-
-      if (!response.ok) {
-        let errorData;
-        try {
-          errorData = JSON.parse(responseText);
-        } catch {
-          errorData = { error: 'Unknown error' };
-        }
-        if (response.status === 401) throw new Error('Session expired or invalid token');
-        throw new Error(errorData.error || `Failed to fetch cart (Status: ${response.status})`);
-      }
-
-      const data = JSON.parse(responseText);
-      console.log('Cart data received:', data);
-
-      const syncedItems = data.items.map(item => ({
-        ...item.product,
-        productId: item.productId,
-        quantity: item.quantity,
-      }));
-      setCartItems(syncedItems);
-    } catch (err) {
-      setError(err.message);
-      toast.error(err.message);
-      console.error('Fetch cart error:', err);
-      if (err.message.includes('expired') || err.message.includes('invalid token')) {
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
-        navigate('/login');
-      }
-    } finally {
-      setLoading(false);
     }
-  }, [navigate]);
+  }, [error, navigate, toast]);
 
-  // Sync cart changes with backend
-  const syncCartWithBackend = useCallback(async (productId, action, quantity) => {
-    const token = localStorage.getItem('token');
-    const user = JSON.parse(localStorage.getItem('user') || 'null');
+  const handleRemoveItem = (productId: string) => {
+    removeItem(productId);
+  };
 
-    if (!token || !user || !user.id) return;
+  const handleUpdateQuantity = (productId: string, newQuantity: number) => {
+    updateQuantity(productId, newQuantity);
+  };
 
-    setLoading(true);
+  const handleClearCart = async () => {
     try {
-      console.log(`Syncing cart - Action: ${action}, Product ID: ${productId}, Quantity: ${quantity}`);
-      let response;
-      if (action === 'remove') {
-        response = await fetch(`http://localhost:3000/cart/${user.id}`, {
-          method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ productId }),
-        });
-      } else if (action === 'update') {
-        const product = cartItems.find(item => item.productId === productId);
-        if (quantity > product.stock) {
-          toast.error(`Only ${product.stock} items in stock`);
-          setLoading(false);
-          return;
-        }
-        response = await fetch(`http://localhost:3000/cart/${user.id}`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ productId, quantity }),
-        });
-      }
-
-      const responseText = await response.text();
-      console.log(`${action} response status:`, response.status, 'body:', responseText);
-
-      if (!response.ok) {
-        const errorData = JSON.parse(responseText);
-        throw new Error(errorData.error || `Failed to ${action} item (Status: ${response.status})`);
-      }
-
-      await fetchCart(); // Refresh cart after update
-      toast.success(action === 'remove' ? 'Item removed' : 'Quantity updated');
+      await clearCart();
     } catch (err) {
-      toast.error(`Failed to ${action} item: ${err.message}`);
-      console.error(`Sync error (${action}):`, err);
-    } finally {
-      setLoading(false);
-    }
-  }, [cartItems, fetchCart]);
-
-  useEffect(() => {
-    fetchCart();
-  }, [fetchCart]);
-
-  // Handlers
-  const handleRemoveItem = (id) => {
-    syncCartWithBackend(id, 'remove');
-  };
-
-  const handleUpdateQuantity = (id, newQuantity) => {
-    if (newQuantity < 1) {
-      handleRemoveItem(id);
-    } else {
-      syncCartWithBackend(id, 'update', newQuantity);
+      console.error('Clear cart error:', err);
     }
   };
 
-  // Calculate totals
-  const calculateItemPrice = (item) => {
-    const price = item.discount > 0
-      ? Number(item.price) * (1 - item.discount / 100)
-      : Number(item.price);
-    return price * item.quantity;
-  };
-
-  const cartSubtotal = cartItems.reduce((sum, item) => sum + calculateItemPrice(item), 0);
   const taxRate = 0.1; // 10% tax
-  const tax = cartSubtotal * taxRate;
-  const cartTotalItems = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const tax = subtotal * taxRate;
+  const shipping = subtotal > 50 ? 0 : 5;
+  const total = subtotal + tax + shipping;
 
-  if (loading) {
+  if (isLoading) {
     return (
       <div className="flex justify-center items-center min-h-screen">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
@@ -170,7 +67,7 @@ export default function CartPage() {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen">
         <p className="text-red-500 mb-4">{error}</p>
-        <Button onClick={fetchCart}>Retry</Button>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
       </div>
     );
   }
@@ -181,7 +78,7 @@ export default function CartPage() {
       <main className="flex-grow pt-24 pb-12">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <h1 className="text-2xl font-bold mb-8">Shopping Cart</h1>
-          
+
           {cartItems.length > 0 ? (
             <div className="grid md:grid-cols-3 gap-8">
               {/* Cart Items */}
@@ -214,14 +111,14 @@ export default function CartPage() {
                           {item.discount > 0 ? (
                             <>
                               <p className="font-semibold">
-                                ${(calculateItemPrice(item) / item.quantity).toFixed(2)}
+                                ${(item.price * (1 - item.discount / 100)).toFixed(2)}
                               </p>
                               <p className="text-sm text-muted-foreground line-through">
-                                ${Number(item.price).toFixed(2)}
+                                ${item.price.toFixed(2)}
                               </p>
                             </>
                           ) : (
-                            <p className="font-semibold">${Number(item.price).toFixed(2)}</p>
+                            <p className="font-semibold">${item.price.toFixed(2)}</p>
                           )}
                         </div>
                       </div>
@@ -231,7 +128,7 @@ export default function CartPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleUpdateQuantity(item.productId, item.quantity - 1)}
-                            disabled={loading || item.quantity <= 1}
+                            disabled={isLoading || item.quantity <= 1}
                             aria-label="Decrease quantity"
                           >
                             <Minus size={14} />
@@ -241,7 +138,7 @@ export default function CartPage() {
                             variant="ghost"
                             size="sm"
                             onClick={() => handleUpdateQuantity(item.productId, item.quantity + 1)}
-                            disabled={loading || item.quantity >= item.stock}
+                            disabled={isLoading || item.quantity >= item.stock}
                             aria-label="Increase quantity"
                           >
                             <Plus size={14} />
@@ -251,7 +148,7 @@ export default function CartPage() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleRemoveItem(item.productId)}
-                          disabled={loading}
+                          disabled={isLoading}
                           aria-label="Remove item"
                           className="text-muted-foreground hover:text-destructive"
                         >
@@ -261,19 +158,28 @@ export default function CartPage() {
                     </div>
                   </div>
                 ))}
+                <Button
+                  variant="outline"
+                  onClick={handleClearCart}
+                  disabled={isLoading}
+                  className="mt-4"
+                >
+                  Clear Cart
+                </Button>
               </div>
+
               {/* Order Summary */}
               <div className="md:col-span-1">
                 <div className="bg-background border border-border rounded-lg p-6 sticky top-24">
                   <h2 className="text-lg font-semibold mb-4">Order Summary</h2>
                   <div className="space-y-2 mb-4">
                     <div className="flex justify-between">
-                      <span className="text-muted-foreground">Subtotal ({cartTotalItems} items)</span>
-                      <span>${cartSubtotal.toFixed(2)}</span>
+                      <span className="text-muted-foreground">Subtotal ({totalItems} items)</span>
+                      <span>${subtotal.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Shipping</span>
-                      <span>{cartSubtotal > 50 ? 'Free' : '$5.00'}</span>
+                      <span>{shipping === 0 ? 'Free' : '$5.00'}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-muted-foreground">Tax (10%)</span>
@@ -283,12 +189,15 @@ export default function CartPage() {
                   <div className="border-t border-border my-4 pt-4">
                     <div className="flex justify-between font-semibold">
                       <span>Total</span>
-                      <span>
-                        ${(cartSubtotal + tax + (cartSubtotal > 50 ? 0 : 5)).toFixed(2)}
-                      </span>
+                      <span>${total.toFixed(2)}</span>
                     </div>
                   </div>
-                  <Button className="w-full mt-4 mb-2" size="lg" asChild disabled={loading}>
+                  <Button
+                    className="w-full mt-4 mb-2"
+                    size="lg"
+                    asChild
+                    disabled={isLoading || cartItems.length === 0}
+                  >
                     <Link to="/checkout">
                       Checkout <ArrowRight size={16} className="ml-2" />
                     </Link>
@@ -302,7 +211,9 @@ export default function CartPage() {
           ) : (
             <div className="text-center py-12 border border-border rounded-lg bg-background">
               <h2 className="text-xl font-semibold mb-2">Your cart is empty</h2>
-              <p className="text-muted-foreground mb-6">Looks like you haven't added any products yet.</p>
+              <p className="text-muted-foreground mb-6">
+                Looks like you haven’t added any products yet.
+              </p>
               <Link to="/products">
                 <Button>Start Shopping</Button>
               </Link>

@@ -2,26 +2,10 @@ import express from "express";
 import { PrismaClient } from '@prisma/client';
 import cors from 'cors';
 import { 
-  addCart, 
-  addWishlist, 
-  clearCart, 
-  createCategory, 
-  deleteCart, 
-  deleteProduct, 
-  deleteWishlist, 
-  getCart, 
-  getCategories, 
-  getCategoryBySlug, 
-  getDeals, 
-  getFeaturedProducts, 
-  getOrder, 
-  getProducts, 
-  getProfile, 
-  getWishlist, 
-  login, 
-  postProducts, 
-  signup, 
-  updateCart
+  addCart, addWishlist, clearCart, createCategory, deleteCart, deleteProduct, 
+  deleteWishlist, getCart, getCategories, getCategoryBySlug, getDeals, 
+  getFeaturedProducts, getOrder, getProducts, getProfile, getWishlist, 
+  login, signup, updateCart, addProduct, editProduct, getAdminProducts, getProductById
 } from "./api.js";
 import { authenticateUser } from "./middleware.js";
 
@@ -49,12 +33,17 @@ app.get("/profile", authenticateUser, getProfile);
 app.get('/categories', getCategories);
 app.post('/categories', authenticateUser, createCategory);
 app.get('/categories/:slug', getCategoryBySlug);
-app.get('/products/featured', getFeaturedProducts);
 
-// Products
-app.post('/products', authenticateUser, postProducts);
+// Products (User-facing)
 app.get('/products', getProducts);
-app.delete("/products", authenticateUser, deleteProduct);
+app.get('/products/featured', getFeaturedProducts);
+app.get('/products/:id', getProductById);
+
+// Products (Admin-facing)
+app.get('/admin/products', authenticateUser, getAdminProducts);
+app.post('/admin/products', authenticateUser, addProduct);
+app.put('/admin/products/:id', authenticateUser, editProduct);
+app.delete("/admin/products", authenticateUser, deleteProduct);
 
 // Wishlist
 app.post('/wishlist/add', authenticateUser, addWishlist);
@@ -72,9 +61,6 @@ app.get("/order/:userId", authenticateUser, getOrder);
 
 // Deals
 app.get('/deals', getDeals);
-
-// Artisans
-// app.get('/artisans', getArtisans);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {

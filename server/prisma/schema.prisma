@@ -21,6 +21,7 @@ model User {
   chatbotLogs ChatbotLog[]  // ✅ Add this to establish the reverse relation
    payments    Payment[]  // ✅ Add this to establish the reverse relation
   addresses  Address[]
+  products    Product[]    @relation("CreatedBy") // Products created by this admin
 }
 
 model Address {
@@ -49,25 +50,27 @@ model Category {
 }
 
 model Product {
-  id          String   @id @default(uuid())
+  id          String    @id @default(uuid())
   name        String
   description String?
   price       Decimal
-  discount    Int?     @default(0) // Added discount field
+  discount    Int       @default(0)
   categoryId  String
-  category    Category @relation(fields: [categoryId], references: [id])
+  category    Category  @relation(fields: [categoryId], references: [id])
   imageUrl    String?
-  images      String[] // ✅ Store multiple images
-  stock       Int      @default(0)
-  rating      Float?   @default(0.0) // ✅ Rating support
-  reviewCount Int?     @default(0) // ✅ Review count support
-  specifications Json? // ✅ Store specifications as JSON
-  variants    Json?    // ✅ Store variants as JSON
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  images      String[]
+  stock       Int       @default(0)
+  rating      Float?    @default(0.0)
+  reviewCount Int?      @default(0)
+  specifications Json?
+  variants    Json?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
   wishlists   WishlistProduct[]
   cartItems   CartItem[]
   orderItems  OrderItem[]
+  createdById String?
+  createdBy   User?     @relation("CreatedBy", fields: [createdById], references: [id]) // Redline here?
 }
 
 
